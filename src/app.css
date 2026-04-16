@@ -608,3 +608,56 @@ fieldset.toggles legend {
   color: #fff;
   border-bottom-color: rgba(255, 255, 255, 0.6);
 }
+
+.attendance-block {
+  margin-bottom: 1rem;
+}
+
+.attendance-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.35rem;
+}
+
+.attendance-head .h3 {
+  margin: 0;
+  font-family: var(--font);
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--navy);
+}
+
+.attendance-hint {
+  margin: 0 0 0.75rem;
+}
+
+.attendance-row {
+  display: grid;
+  gap: 0.65rem 1rem;
+  padding: 0.85rem 0.9rem;
+  margin-bottom: 0.65rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: #fafbfc;
+  grid-template-columns: 1fr;
+}
+
+@media (min-width: 640px) {
+  .attendance-row {
+    grid-template-columns: 1fr 1fr auto auto;
+    align-items: end;
+  }
+}
+
+.mensa-check {
+  margin: 0;
+  align-self: center;
+}
+
+.small-remove {
+  align-self: center;
+  justify-self: start;
+}

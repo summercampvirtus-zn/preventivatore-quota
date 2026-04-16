@@ -1,6 +1,6 @@
 # Preventivatore Summer Camp (Virtus)
 
-Mini-app **Svelte 5 + Vite + TypeScript**: calcolo del preventivo **solo nel browser** (nessun backend), in linea con il volantino **Summer** (tariffe settimanali, fino a 6 figli).
+Mini-app **Svelte 5 + Vite + TypeScript**: calcolo del preventivo **solo nel browser** (nessun backend), in linea con il listino **Summer**: tariffe **settimanali** per ogni settimana camp e fascia scelta, fino a 6 figli.
 
 ## Sviluppo
 
@@ -55,6 +55,10 @@ npm run check
 
 ## Note
 
-- Tariffe e regole sono centralizzate in [`src/lib/pricing.ts`](src/lib/pricing.ts).
-- Ogni figlio ha **proprio numero di settimane**; il totale ricorrente è la somma di (quota settimanale netta × settimane) per figlio.
-- Per iscrizioni / moduli ufficiali (es. Easter Camp) usa i link indicati nell’app.
+- Tariffe e regole: [`src/lib/pricing.ts`](src/lib/pricing.ts); calendario settimane camp: [`src/lib/campWeeks.ts`](src/lib/campWeeks.ts) (aggiornare le date a inizio stagione).
+- Per ogni figlio si aggiungono **una o più settimane** dal calendario; **per ogni settimana** si sceglie la fascia (40 / 25 / 65 €) e opzionalmente la **mensa** (+30 €) solo con giornata intera.
+- **Sconto fratelli**: 2° −10 €/sett., 3° −15 €/sett., dal 4° al 6° −20 €/sett. (per ogni settimana di frequenza del figlio).
+- **Posticipi**: due voci (+5 € ciascuna per settimana compatibile con la fascia di quella riga).
+- **Iscrizione tardiva** (+10 €/combinazione figlio–settimana): calcolata **automaticamente** se sei nella finestra ven 00:00 – lun 07:00 e risulti iscritto alla **prossima** settimana camp del calendario (vedi testo in riepilogo nell’app).
+- Le maggiorazioni per **assenza** non comunicata **non** sono nel tool (gestione in sede al camp).
+- Per iscrizioni ufficiali (es. Easter) usa i link nell’app.

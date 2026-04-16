@@ -1,6 +1,6 @@
 <script lang="ts">
+  import { CAMP_WEEKS } from './lib/campWeeks'
   import {
-    clampWeeks,
     computeQuote,
     defaultChildConfig,
     formatEur,
@@ -10,6 +10,7 @@
     SLOT_ORDER,
     type ChildConfig,
     type TimeSlot,
+    type WeekAttendance,
   } from './lib/pricing'
 
   const MAX_CHILDREN = 6
@@ -24,14 +25,11 @@
   let children = $state<Row[]>([newRow()])
   let detailsOpen = $state(false)
 
-  /** `children.length` è l’unica fonte di verità: il select si aggancia a essa per evitare disallineamenti. */
   function setNumFigli(count: number) {
     const n = Math.min(MAX_CHILDREN, Math.max(1, Math.floor(count)))
     if (children.length < n) {
       const extra: Row[] = []
-      while (children.length + extra.length < n) {
-        extra.push(newRow())
-      }
+      while (children.length + extra.length < n) extra.push(newRow())
       children = [...children, ...extra]
     } else if (children.length > n) {
       children = children.slice(0, n)
@@ -48,16 +46,36 @@
   }
 
   function scrollToSummary() {
-    document.getElementById('riepilogo')?.scrollIntoView({
-      behavior: 'smooth',
-      block: 'start',
-    })
+    document.getElementById('riepilogo')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
     detailsOpen = true
   }
 
-  function onSlotChange(child: Row, slot: TimeSlot) {
-    child.slot = slot
-    if (slot !== 'full') child.canteen = false
+  function weekOptionsForRow(child: Row, rowIndex: number) {
+    const cur = child.attendances[rowIndex]?.weekId
+    const other = new Set(
+      child.attendances.map((a, i) => (i === rowIndex ? null : a.weekId)).filter(Boolean) as string[],
+    )
+    return CAMP_WEEKS.filter((w) => w.id === cur || !other.has(w.id))
+  }
+
+  function addAttendance(child: Row) {
+    const used = new Set(child.attendances.map((a) => a.weekId))
+    const next = CAMP_WEEKS.find((w) => !used.has(w.id))
+    if (!next) return
+    child.attendances = [
+      ...child.attendances,
+      { weekId: next.id, slot: 'full' as TimeSlot, canteen: false },
+    ]
+  }
+
+  function removeAttendance(child: Row, idx: number) {
+    if (child.attendances.length <= 1) return
+    child.attendances = child.attendances.filter((_, i) => i !== idx)
+  }
+
+  function onAttendanceSlotChange(a: WeekAttendance, slot: TimeSlot) {
+    a.slot = slot
+    if (slot !== 'full') a.canteen = false
   }
 </script>
 
@@ -69,16 +87,17 @@
     </div>
     <div class="hero-intro">
       <p class="lede">
-        Stima il costo in base al volantino: tariffe <strong>settimanali</strong>, fino a
-        {MAX_CHILDREN} figli. Ogni figlio ha le <strong>sue settimane</strong> di frequenza.
-        Iscrizione una tantum e sconto fratelli inclusi nel calcolo.
+        Tariffe <strong>settimanali</strong> del listino: per ogni settimana camp scegli la <strong>fascia</strong>
+        (mattina, pomeriggio o giornata intera + mensa). Fino a {MAX_CHILDREN} figli; sconti fratelli e
+        iscrizione tardiva (se applicabile) calcolati automaticamente.
       </p>
       <p class="disclaimer">
-        Importi indicativi: verifica sempre in segreteria. Per altri camp (es. Easter) usa il
+        Importi indicativi: verifica in segreteria. Eventuali maggiorazioni per <strong>assenza</strong> non
+        comunicata non sono incluse qui (gestite in sede al camp). Easter:
         <a
           href="https://docs.google.com/forms/d/e/1FAIpQLSfBUGXXRYMp7Zw78Wz2RieTZt1dvUy6j_10isWCarTI_H86qA/viewform"
           target="_blank"
-          rel="noreferrer">modulo Google ufficiale</a
+          rel="noreferrer">modulo Google</a
         >.
       </p>
       <div class="pill-row" aria-hidden="true">
@@ -94,7 +113,7 @@
 
   <section class="toolbar card" aria-label="Impostazioni generali">
     <div class="field num-figli-field">
-      <label for="num-figli">Quanti figli vuoi inserire?</label>
+      <label for="num-figli">Quanti figli?</label>
       <select
         id="num-figli"
         class="select-num-figli"
@@ -106,9 +125,7 @@
           <option value={String(n)}>{n}</option>
         {/each}
       </select>
-      <span class="hint"
-        >Vengono mostrate tante schede quanti figli selezioni (da 1 a {MAX_CHILDREN}).</span
-      >
+      <span class="hint">Una scheda per figlio (1–{MAX_CHILDREN}).</span>
     </div>
     <div class="toolbar-actions">
       <button type="button" class="btn primary" onclick={scrollToSummary}>Calcola / Riepilogo</button>
@@ -120,9 +137,7 @@
     {#each children as child, i (child.id)}
       <article class="card child-card">
         <div class="child-head">
-          <h2>
-            {child.name.trim() ? child.name : `Figlio ${i + 1}`}
-          </h2>
+          <h2>{child.name.trim() ? child.name : `Figlio ${i + 1}`}</h2>
         </div>
 
         <div class="field">
@@ -136,78 +151,93 @@
           />
         </div>
 
-        <div class="field field-inline">
-          <div>
-            <label for="weeks-{child.id}">Settimane di frequenza</label>
-            <input
-              id="weeks-{child.id}"
-              type="number"
-              min="1"
-              max="52"
-              step="1"
-              bind:value={child.weeks}
-              onblur={() => {
-                child.weeks = clampWeeks(child.weeks)
-              }}
-            />
+        <div class="attendance-block">
+          <div class="attendance-head">
+            <h3 class="h3">Settimane di frequenza</h3>
+            <button
+              type="button"
+              class="btn secondary small"
+              onclick={() => addAttendance(child)}
+              disabled={child.attendances.length >= CAMP_WEEKS.length}
+            >
+              Aggiungi settimana
+            </button>
           </div>
-          <span class="hint inline-hint"
-            >Minimo <strong>1</strong> settimana. Moltiplica la quota settimanale di questo figlio
-            (fascia, opzioni, sconto fratello).</span
-          >
-        </div>
+          <p class="hint attendance-hint">
+            Per ogni riga: settimana del camp e fascia. I prezzi 40 / 25 / 65 € (+30 mensa) sono <strong
+              >per settimana</strong
+            >.
+          </p>
 
-        <div class="field">
-          <label for="slot-{child.id}">Fascia oraria</label>
-          <select
-            id="slot-{child.id}"
-            bind:value={child.slot}
-            onchange={(e) =>
-              onSlotChange(child, (e.currentTarget as HTMLSelectElement).value as TimeSlot)}
-          >
-            {#each SLOT_ORDER as slotKey (slotKey)}
-              <option value={slotKey}>{SLOT_LABELS[slotKey]}</option>
-            {/each}
-          </select>
+          {#each child.attendances as att, j (`${child.id}-${j}`)}
+            <div class="attendance-row">
+              <div class="field">
+                <label for="wk-{child.id}-{j}">Settimana</label>
+                <select
+                  id="wk-{child.id}-{j}"
+                  bind:value={att.weekId}
+                >
+                  {#each weekOptionsForRow(child, j) as w (w.id)}
+                    <option value={w.id}>{w.label}</option>
+                  {/each}
+                </select>
+              </div>
+              <div class="field">
+                <label for="sl-{child.id}-{j}">Fascia</label>
+                <select
+                  id="sl-{child.id}-{j}"
+                  bind:value={att.slot}
+                  onchange={(e) =>
+                    onAttendanceSlotChange(
+                      att,
+                      (e.currentTarget as HTMLSelectElement).value as TimeSlot,
+                    )}
+                >
+                  {#each SLOT_ORDER as sk (sk)}
+                    <option value={sk}>{SLOT_LABELS[sk]}</option>
+                  {/each}
+                </select>
+              </div>
+              <label class="check mensa-check" class:dim={att.slot !== 'full'}>
+                <input type="checkbox" bind:checked={att.canteen} disabled={att.slot !== 'full'} />
+                <span>Mensa (+{formatEur(PRICING.canteen)})</span>
+              </label>
+              {#if child.attendances.length > 1}
+                <button
+                  type="button"
+                  class="btn text danger small-remove"
+                  onclick={() => removeAttendance(child, j)}>Rimuovi</button
+                >
+              {/if}
+            </div>
+          {/each}
         </div>
 
         <fieldset class="toggles">
-          <legend>Opzioni e maggiorazioni (settimanali)</legend>
+          <legend>Opzioni (per ogni settimana di questo figlio)</legend>
           <label class="check">
             <input type="checkbox" bind:checked={child.preschool} />
-            <span>Scuola dell’infanzia (+{formatEur(PRICING.preschoolExtra)}/sett.)</span>
-          </label>
-          <label class="check" class:dim={child.slot !== 'full'}>
-            <input
-              type="checkbox"
-              bind:checked={child.canteen}
-              disabled={child.slot !== 'full'}
-            />
-            <span>Servizio mensa (+{formatEur(PRICING.canteen)}/sett., solo giornata intera)</span>
+            <span>Scuola dell’infanzia (+{formatEur(PRICING.preschoolExtra)}/sett. × n. settimane)</span>
           </label>
           <label class="check">
             <input type="checkbox" bind:checked={child.earlyDropoff} />
-            <span>Anticipo 7:30–8:00 (+{formatEur(PRICING.earlyDropoff)}/sett.)</span>
+            <span>Anticipo 7:30–8:00 (+{formatEur(PRICING.earlyDropoff)}/sett. × n. settimane)</span>
           </label>
           <label class="check">
-            <input type="checkbox" bind:checked={child.latePickup} />
-            <span>Posticipo (+{formatEur(PRICING.latePickup)}/sett.)</span>
+            <input type="checkbox" bind:checked={child.latePickupMorning} />
+            <span>Posticipo 13:00–13:30 (+{formatEur(PRICING.latePickup)}/sett. per settimana in mattina o giornata intera)</span>
           </label>
           <label class="check">
-            <input type="checkbox" bind:checked={child.lateRegistration} />
-            <span>Iscrizione tardiva (+{formatEur(PRICING.lateRegistration)}/sett.)</span>
-          </label>
-          <label class="check">
-            <input type="checkbox" bind:checked={child.undeclaredAbsence} />
-            <span>Maggiorazione assenza non comunicata (+{formatEur(PRICING.undeclaredAbsence)}/sett.)</span
-            >
+            <input type="checkbox" bind:checked={child.latePickupEvening} />
+            <span>Posticipo 17:00–17:45 (+{formatEur(PRICING.latePickup)}/sett. per settimana in pomeriggio o giornata intera)</span>
           </label>
         </fieldset>
 
         <p class="child-subtotal">
-          Netto <strong>{formatEur(quote.lines[i]?.weeklyNet ?? 0)}</strong>/sett.
-          × <strong>{quote.lines[i]?.weeks ?? 0}</strong> sett.
-          = <strong>{formatEur(quote.lines[i]?.recurringChild ?? 0)}</strong> (parte ricorrente questo figlio)
+          Totale ricorrente questo figlio:
+          <strong>{formatEur(quote.lines[i]?.recurringChild ?? 0)}</strong>
+          ({quote.lines[i]?.weekCount ?? 0} sett.; media
+          <strong>{formatEur(quote.lines[i]?.weeklyNet ?? 0)}</strong>/sett. dopo sconto fratello)
         </p>
       </article>
     {/each}
@@ -221,19 +251,34 @@
         <dd>{formatEur(quote.registrationTotal)}</dd>
       </div>
       <div>
+        <dt>Quota figli (fino a maggiorazione tardiva)</dt>
+        <dd>{formatEur(quote.weeklyRecurringNet)}</dd>
+      </div>
+      {#if quote.lateRegistration.amount > 0}
+        <div>
+          <dt
+            >Iscrizione tardiva ({quote.lateRegistration.qualifyingChildWeeks} × {formatEur(
+              PRICING.lateRegistrationPerWeek,
+            )})</dt
+          >
+          <dd>{formatEur(quote.lateRegistration.amount)}</dd>
+        </div>
+      {/if}
+      <div>
         <dt>Totale ricorrente</dt>
         <dd>{formatEur(quote.recurringTotal)}</dd>
       </div>
     </dl>
     <p class="totals-explain">
-      Somma di <strong>(quota settimanale netta × settimane)</strong> per ciascun figlio. Settimane
-      complessive (somma): <strong>{quote.totalChildWeeks}</strong>.
+      {#if quote.lateRegistration.nextWeekLabel}
+        Prossima settimana camp (calendario): <strong>{quote.lateRegistration.nextWeekLabel}</strong>.
+      {/if}
+      Finestra tardiva attiva ora: <strong>{quote.lateRegistration.inWindow ? 'sì' : 'no'}</strong>.
+      Iscrizione a quella settimana: <strong
+        >{quote.lateRegistration.hasNextWeekEnrollment ? 'sì' : 'no'}</strong
+      >. Settimane di frequenza totali (somma righe): <strong>{quote.totalChildWeeks}</strong>.
     </p>
     <dl class="totals totals-tail">
-      <div class="totals-ref">
-        <dt>Riferimento: somma quote settimanali (1 sett. ciascuno)</dt>
-        <dd>{formatEur(quote.weeklyRecurringNet)}</dd>
-      </div>
       <div class="grand">
         <dt>Totale stimato</dt>
         <dd>{formatEur(quote.total)}</dd>
@@ -251,23 +296,20 @@
 
     {#if detailsOpen}
       <ul class="detail-lines">
-        {#each quote.lines as line, i}
+        {#each quote.lines as line, ci}
           <li>
-            <strong>{children[i]?.name?.trim() || `Figlio ${i + 1}`}</strong>
+            <strong>{children[ci]?.name?.trim() || `Figlio ${ci + 1}`}</strong>
             <span class="mono">
-              base {formatEur(line.baseSlot)}
-              {#if line.preschoolExtra}+ infanzia {formatEur(line.preschoolExtra)}{/if}
-              {#if line.canteen}+ mensa {formatEur(line.canteen)}{/if}
-              {#if line.earlyDropoff}+ anticipo {formatEur(line.earlyDropoff)}{/if}
-              {#if line.latePickup}+ posticipo {formatEur(line.latePickup)}{/if}
-              {#if line.lateRegistration}+ tardiva {formatEur(line.lateRegistration)}{/if}
-              {#if line.undeclaredAbsence}+ assenza {formatEur(line.undeclaredAbsence)}{/if}
-              {#if line.siblingDiscount > 0}
-                − sconto fratello {formatEur(line.siblingDiscount)}
-              {/if}
-              → <strong>{formatEur(line.weeklyNet)}/sett.</strong>
-              × {line.weeks} sett.
-              = <strong>{formatEur(line.recurringChild)}</strong>
+              {#each line.attendanceLines as al}
+                <br />{al.weekLabel}: {SLOT_LABELS[al.slot]}
+                {formatEur(al.baseSlot + al.canteen)}
+              {/each}
+              {#if line.preschoolExtra > 0}<br />+ infanzia {formatEur(line.preschoolExtra)}{/if}
+              {#if line.earlyDropoff > 0}<br />+ anticipo {formatEur(line.earlyDropoff)}{/if}
+              {#if line.latePickupMorning > 0}<br />+ posticipo mattina {formatEur(line.latePickupMorning)}{/if}
+              {#if line.latePickupEvening > 0}<br />+ posticipo sera {formatEur(line.latePickupEvening)}{/if}
+              {#if line.siblingDiscountTotal > 0}<br />− sconto fratelli {formatEur(line.siblingDiscountTotal)}{/if}
+              <br /><strong>= {formatEur(line.recurringChild)}</strong>
             </span>
           </li>
         {/each}
@@ -277,11 +319,11 @@
 
   <footer class="site-footer">
     <p>
-      Ispirazione flusso:
+      Ispirazione:
       <a href="https://www.asdludens.com/summercamp.php#calcolatore" target="_blank" rel="noreferrer"
-        >calcolatore Ludens</a
+        >Ludens</a
       >
-      · Summer Camp Virtus · preventivo solo lato browser (nessun invio dati).
+      · Virtus · solo browser.
     </p>
   </footer>
 </div>

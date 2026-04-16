@@ -1,16 +1,20 @@
-/** Fascia oraria settimanale (tariffe volantino Summer). */
+import type { CampWeek } from './campWeeks'
+import { CAMP_WEEKS, campWeekById } from './campWeeks'
+
 export type TimeSlot = 'morning' | 'afternoon' | 'full'
 
-export interface ChildConfig {
-  /** Settimane di frequenza per questo figlio (moltiplica la sua quota settimanale). */
-  weeks: number
+export interface WeekAttendance {
+  weekId: string
   slot: TimeSlot
-  preschool: boolean
   canteen: boolean
+}
+
+export interface ChildConfig {
+  attendances: WeekAttendance[]
+  preschool: boolean
   earlyDropoff: boolean
-  latePickup: boolean
-  lateRegistration: boolean
-  undeclaredAbsence: boolean
+  latePickupMorning: boolean
+  latePickupEvening: boolean
 }
 
 export const PRICING = {
@@ -21,10 +25,8 @@ export const PRICING = {
   preschoolExtra: 5,
   earlyDropoff: 5,
   latePickup: 5,
-  lateRegistration: 10,
-  undeclaredAbsence: 10,
+  lateRegistrationPerWeek: 10,
   registrationPerChild: 15,
-  siblingDiscountPerWeek: 10,
 } as const
 
 export const SLOT_LABELS: Record<TimeSlot, string> = {
@@ -33,34 +35,23 @@ export const SLOT_LABELS: Record<TimeSlot, string> = {
   full: 'Giornata intera (8:00–17:00)',
 }
 
-/** Ordine opzioni nel select. */
 export const SLOT_ORDER: TimeSlot[] = ['morning', 'afternoon', 'full']
 
+export function siblingDiscountPerWeek(childIndex: number): number {
+  const tier = [0, 10, 15, 20, 20, 20]
+  return tier[Math.min(childIndex, tier.length - 1)] ?? 0
+}
+
 export function defaultChildConfig(): ChildConfig {
+  const first = CAMP_WEEKS[0]
   return {
-    weeks: 1,
-    slot: 'morning',
+    attendances: first
+      ? [{ weekId: first.id, slot: 'full', canteen: false }]
+      : [],
     preschool: false,
-    canteen: false,
     earlyDropoff: false,
-    latePickup: false,
-    lateRegistration: false,
-    undeclaredAbsence: false,
-  }
-}
-
-/** Settimane: minimo 1, massimo 52; non numerico o fuori range → 1. */
-export function clampWeeks(w: unknown): number {
-  const raw = Math.floor(Number(w))
-  if (!Number.isFinite(raw)) return 1
-  return Math.min(52, Math.max(1, raw))
-}
-
-export function normalizeChild(c: ChildConfig): ChildConfig {
-  return {
-    ...c,
-    weeks: clampWeeks(c.weeks),
-    canteen: c.slot === 'full' && c.canteen,
+    latePickupMorning: false,
+    latePickupEvening: false,
   }
 }
 
@@ -75,93 +66,250 @@ function baseSlotPrice(slot: TimeSlot): number {
   }
 }
 
+function normalizeAttendance(a: WeekAttendance): WeekAttendance {
+  return {
+    weekId: a.weekId,
+    slot: a.slot,
+    canteen: a.slot === 'full' && a.canteen,
+  }
+}
+
+export function normalizeChild(c: ChildConfig): ChildConfig {
+  let attendances = (c.attendances?.length ? c.attendances : []).map(normalizeAttendance)
+  const validIds = new Set(CAMP_WEEKS.map((w) => w.id))
+  attendances = attendances.filter((a) => validIds.has(a.weekId))
+  if (attendances.length === 0 && CAMP_WEEKS[0]) {
+    attendances = [{ weekId: CAMP_WEEKS[0].id, slot: 'full', canteen: false }]
+  }
+  return {
+    ...c,
+    attendances,
+  }
+}
+
+function mondayOfWeekContaining(d: Date): Date {
+  const y = d.getFullYear()
+  const m = d.getMonth()
+  const day = d.getDate()
+  const dow = d.getDay()
+  const diff = dow === 0 ? -6 : 1 - dow
+  const res = new Date(y, m, day + diff)
+  res.setHours(0, 0, 0, 0)
+  return res
+}
+
+function startOfNextCalendarWeek(d: Date): Date {
+  const m0 = mondayOfWeekContaining(d)
+  const next = new Date(m0)
+  next.setDate(next.getDate() + 7)
+  return next
+}
+
+function toYMD(d: Date): string {
+  const y = d.getFullYear()
+  const mo = String(d.getMonth() + 1).padStart(2, '0')
+  const da = String(d.getDate()).padStart(2, '0')
+  return `${y}-${mo}-${da}`
+}
+
+export function firstCampWeekOnOrAfter(mondayStart: string): CampWeek | undefined {
+  const sorted = [...CAMP_WEEKS].sort((a, b) => a.mondayISO.localeCompare(b.mondayISO))
+  return sorted.find((w) => w.mondayISO >= mondayStart)
+}
+
+export function nextCampWeekAfterCurrentCalendarWeek(now: Date): CampWeek | undefined {
+  const targetMonday = toYMD(startOfNextCalendarWeek(now))
+  return firstCampWeekOnOrAfter(targetMonday)
+}
+
+function fridayMidnightBeforeMonday(mondayISO: string): Date {
+  const [yy, mm, dd] = mondayISO.split('-').map(Number)
+  const monday = new Date(yy, mm - 1, dd, 0, 0, 0, 0)
+  const fri = new Date(monday)
+  fri.setDate(fri.getDate() - 3)
+  fri.setHours(0, 0, 0, 0)
+  return fri
+}
+
+function mondaySevenThirtyAm(mondayISO: string): Date {
+  const [yy, mm, dd] = mondayISO.split('-').map(Number)
+  return new Date(yy, mm - 1, dd, 7, 30, 0, 0)
+}
+
+export function isInLateRegistrationWindow(now: Date, targetWeek: CampWeek): boolean {
+  const start = fridayMidnightBeforeMonday(targetWeek.mondayISO)
+  const end = mondaySevenThirtyAm(targetWeek.mondayISO)
+  return now.getTime() >= start.getTime() && now.getTime() < end.getTime()
+}
+
+export interface LateRegistrationResult {
+  amount: number
+  qualifyingChildWeeks: number
+  nextWeekId: string | null
+  nextWeekLabel: string | null
+  inWindow: boolean
+  hasNextWeekEnrollment: boolean
+}
+
+export function computeLateRegistrationSurcharge(
+  now: Date,
+  children: ChildConfig[],
+): LateRegistrationResult {
+  const nextW = nextCampWeekAfterCurrentCalendarWeek(now)
+  if (!nextW) {
+    return {
+      amount: 0,
+      qualifyingChildWeeks: 0,
+      nextWeekId: null,
+      nextWeekLabel: null,
+      inWindow: false,
+      hasNextWeekEnrollment: false,
+    }
+  }
+  const inWindow = isInLateRegistrationWindow(now, nextW)
+  let qualifying = 0
+  for (const ch of children) {
+    const n = normalizeChild(ch)
+    for (const a of n.attendances) {
+      if (a.weekId === nextW.id) qualifying += 1
+    }
+  }
+  const hasNext = qualifying > 0
+  const amount =
+    inWindow && hasNext ? qualifying * PRICING.lateRegistrationPerWeek : 0
+  return {
+    amount,
+    qualifyingChildWeeks: qualifying,
+    nextWeekId: nextW.id,
+    nextWeekLabel: nextW.label,
+    inWindow,
+    hasNextWeekEnrollment: hasNext,
+  }
+}
+
+export interface AttendanceLineDetail {
+  weekId: string
+  weekLabel: string
+  slot: TimeSlot
+  baseSlot: number
+  canteen: number
+}
+
 export interface ChildLineDetail {
   index: number
-  weeks: number
-  baseSlot: number
+  weekCount: number
+  attendanceLines: AttendanceLineDetail[]
   preschoolExtra: number
-  canteen: number
   earlyDropoff: number
-  latePickup: number
-  lateRegistration: number
-  undeclaredAbsence: number
+  latePickupMorning: number
+  latePickupEvening: number
+  sumBaseAndCanteen: number
+  extrasTotal: number
+  siblingDiscountPerWeek: number
+  siblingDiscountTotal: number
   weeklyGross: number
-  siblingDiscount: number
   weeklyNet: number
-  /** weeklyNet × weeks */
   recurringChild: number
 }
 
 export interface QuoteResult {
   childCount: number
   registrationTotal: number
-  /** Somma delle tariffe settimanali nette (come se ciascuno facesse 1 settimana). */
   weeklyRecurringNet: number
-  /** Somma (tariffa settimanale netta × settimane) per ogni figlio. */
   recurringTotal: number
+  lateRegistration: LateRegistrationResult
   total: number
   lines: ChildLineDetail[]
-  /** Somma delle settimane inserite (tutti i figli). */
   totalChildWeeks: number
 }
 
-/**
- * Calcolo puro: iscrizione una tantum + per ogni figlio (quota settimanale netta × sue settimane).
- */
-export function computeQuote(children: ChildConfig[]): QuoteResult {
+function posticipoMorningForRow(slot: TimeSlot, flag: boolean): number {
+  if (!flag) return 0
+  return slot === 'morning' || slot === 'full' ? PRICING.latePickup : 0
+}
+
+function posticipoEveningForRow(slot: TimeSlot, flag: boolean): number {
+  if (!flag) return 0
+  return slot === 'afternoon' || slot === 'full' ? PRICING.latePickup : 0
+}
+
+export function computeQuote(
+  children: ChildConfig[],
+  now: Date = new Date(),
+): QuoteResult {
   const normalized = children.map(normalizeChild)
   const n = normalized.length
-
   const registrationTotal = n * PRICING.registrationPerChild
+  const late = computeLateRegistrationSurcharge(now, normalized)
 
   const lines: ChildLineDetail[] = normalized.map((c, index) => {
-    const weeksForChild = c.weeks
-    const baseSlot = baseSlotPrice(c.slot)
-    let weeklyGross = baseSlot
+    const W = c.attendances.length
+    const attendanceLines: AttendanceLineDetail[] = c.attendances.map((a) => {
+      const wk = campWeekById(a.weekId)
+      const base = baseSlotPrice(a.slot)
+      const cant =
+        a.slot === 'full' && a.canteen ? PRICING.canteen : 0
+      return {
+        weekId: a.weekId,
+        weekLabel: wk?.label ?? a.weekId,
+        slot: a.slot,
+        baseSlot: base,
+        canteen: cant,
+      }
+    })
 
-    const preschoolExtra = c.preschool ? PRICING.preschoolExtra : 0
-    weeklyGross += preschoolExtra
+    const sumBaseAndCanteen = attendanceLines.reduce(
+      (s, r) => s + r.baseSlot + r.canteen,
+      0,
+    )
 
-    const canteen = c.slot === 'full' && c.canteen ? PRICING.canteen : 0
-    weeklyGross += canteen
+    let lateMorning = 0
+    let lateEvening = 0
+    if (c.latePickupMorning) {
+      lateMorning = c.attendances.reduce(
+        (s, a) => s + posticipoMorningForRow(a.slot, true),
+        0,
+      )
+    }
+    if (c.latePickupEvening) {
+      lateEvening = c.attendances.reduce(
+        (s, a) => s + posticipoEveningForRow(a.slot, true),
+        0,
+      )
+    }
 
-    const earlyDropoff = c.earlyDropoff ? PRICING.earlyDropoff : 0
-    weeklyGross += earlyDropoff
+    const preschoolExtra = c.preschool ? W * PRICING.preschoolExtra : 0
+    const earlyDropoff = c.earlyDropoff ? W * PRICING.earlyDropoff : 0
 
-    const latePickup = c.latePickup ? PRICING.latePickup : 0
-    weeklyGross += latePickup
-
-    const lateRegistration = c.lateRegistration ? PRICING.lateRegistration : 0
-    weeklyGross += lateRegistration
-
-    const undeclaredAbsence = c.undeclaredAbsence ? PRICING.undeclaredAbsence : 0
-    weeklyGross += undeclaredAbsence
-
-    const siblingDiscount =
-      index > 0 ? PRICING.siblingDiscountPerWeek : 0
-    const weeklyNet = weeklyGross - siblingDiscount
-    const recurringChild = weeklyNet * weeksForChild
+    const extrasTotal = preschoolExtra + earlyDropoff + lateMorning + lateEvening
+    const discPerWeek = siblingDiscountPerWeek(index)
+    const siblingDiscountTotal = discPerWeek * W
+    const weeklyGross = sumBaseAndCanteen + extrasTotal
+    const recurringChild = weeklyGross - siblingDiscountTotal
+    const weeklyNet = W > 0 ? recurringChild / W : 0
 
     return {
       index,
-      weeks: weeksForChild,
-      baseSlot,
+      weekCount: W,
+      attendanceLines,
       preschoolExtra,
-      canteen,
       earlyDropoff,
-      latePickup,
-      lateRegistration,
-      undeclaredAbsence,
+      latePickupMorning: lateMorning,
+      latePickupEvening: lateEvening,
+      sumBaseAndCanteen,
+      extrasTotal,
+      siblingDiscountPerWeek: discPerWeek,
+      siblingDiscountTotal,
       weeklyGross,
-      siblingDiscount,
       weeklyNet,
       recurringChild,
     }
   })
 
-  const weeklyRecurringNet = lines.reduce((s, l) => s + l.weeklyNet, 0)
-  const recurringTotal = lines.reduce((s, l) => s + l.recurringChild, 0)
-  const totalChildWeeks = lines.reduce((s, l) => s + l.weeks, 0)
+  const weeklyRecurringNet = lines.reduce((s, l) => s + l.weeklyNet * l.weekCount, 0)
+  const recurringFromChildren = lines.reduce((s, l) => s + l.recurringChild, 0)
+  const recurringTotal = recurringFromChildren + late.amount
+  const totalChildWeeks = lines.reduce((s, l) => s + l.weekCount, 0)
   const total = registrationTotal + recurringTotal
 
   return {
@@ -169,6 +317,7 @@ export function computeQuote(children: ChildConfig[]): QuoteResult {
     registrationTotal,
     weeklyRecurringNet,
     recurringTotal,
+    lateRegistration: late,
     total,
     lines,
     totalChildWeeks,
