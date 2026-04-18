@@ -23,6 +23,7 @@ function mkChild(ov: Partial<ChildConfig> = {}): ChildConfig {
     earlyDropoff: false,
     latePickupMorning: false,
     latePickupEvening: false,
+    includeRegistration: false,
     ...ov,
   }
 }
@@ -48,18 +49,22 @@ describe('siblingDiscountPerWeek', () => {
 // normalizeChild
 // ---------------------------------------------------------------------------
 describe('normalizeChild', () => {
-  it('canteen forzata a false se slot != full', () => {
-    const c = mkChild({
+  it('canteen mantenuta anche con mattina o pomeriggio', () => {
+    const morning = mkChild({
       attendances: [{ weekId: W1, slot: 'morning', canteen: true }],
     })
-    expect(normalizeChild(c).attendances[0].canteen).toBe(false)
+    expect(normalizeChild(morning).attendances[0].canteen).toBe(true)
+    const aft = mkChild({
+      attendances: [{ weekId: W1, slot: 'afternoon', canteen: true }],
+    })
+    expect(normalizeChild(aft).attendances[0].canteen).toBe(true)
   })
 
-  it('canteen mantenuta se slot è full', () => {
+  it('canteen false se non spuntata', () => {
     const c = mkChild({
-      attendances: [{ weekId: W1, slot: 'full', canteen: true }],
+      attendances: [{ weekId: W1, slot: 'full', canteen: false }],
     })
-    expect(normalizeChild(c).attendances[0].canteen).toBe(true)
+    expect(normalizeChild(c).attendances[0].canteen).toBe(false)
   })
 
   it('rimuove weekId inesistenti e fallback alla prima settimana', () => {
@@ -76,7 +81,6 @@ describe('normalizeChild', () => {
 // isInLateRegistrationWindow
 // ---------------------------------------------------------------------------
 describe('isInLateRegistrationWindow', () => {
-  // w2026-07-06 = lun 6 luglio. Finestra: ven 3/7 00:00 → lun 6/7 07:30.
   const week = CAMP_WEEKS.find((w) => w.id === 'w2026-07-06')!
 
   it('giovedì 23:59 → false (prima della finestra)', () => {
@@ -156,31 +160,110 @@ describe('computeQuote', () => {
   it('1 figlio, 1 sett., solo mattina', () => {
     const c = mkChild({
       attendances: [{ weekId: W1, slot: 'morning', canteen: false }],
+      includeRegistration: true,
     })
-    const q = computeQuote([c], SAFE_NOW)
+    const q = computeQuote([c], { now: SAFE_NOW })
     expect(q.registrationTotal).toBe(15)
     expect(q.lines[0].sumBaseAndCanteen).toBe(40)
     expect(q.lines[0].recurringChild).toBe(40)
     expect(q.total).toBe(55)
   })
 
+  it('mattina + mensa', () => {
+    const c = mkChild({
+      attendances: [{ weekId: W1, slot: 'morning', canteen: true }],
+      includeRegistration: true,
+    })
+    const q = computeQuote([c], { now: SAFE_NOW })
+    expect(q.lines[0].sumBaseAndCanteen).toBe(70)
+    expect(q.total).toBe(15 + 70)
+  })
+
   it('1 figlio, giornata intera + mensa', () => {
     const c = mkChild({
       attendances: [{ weekId: W1, slot: 'full', canteen: true }],
+      includeRegistration: true,
     })
-    const q = computeQuote([c], SAFE_NOW)
+    const q = computeQuote([c], { now: SAFE_NOW })
     expect(q.lines[0].sumBaseAndCanteen).toBe(95)
     expect(q.total).toBe(15 + 95)
   })
 
-  it('2 figli, sconto fratello al secondo', () => {
-    const q = computeQuote([mkChild(), mkChild()], SAFE_NOW)
+  it('2 figli stessa settimana: sconto fratello sul secondo', () => {
+    const q = computeQuote(
+      [mkChild({ includeRegistration: true }), mkChild({ includeRegistration: true })],
+      { now: SAFE_NOW },
+    )
     expect(q.registrationTotal).toBe(30)
     expect(q.lines[0].siblingDiscountPerWeek).toBe(0)
     expect(q.lines[1].siblingDiscountPerWeek).toBe(10)
+    expect(q.lines[1].siblingDiscountTotal).toBe(10)
     expect(q.lines[0].recurringChild).toBe(65)
     expect(q.lines[1].recurringChild).toBe(55)
     expect(q.total).toBe(30 + 65 + 55)
+  })
+
+  it('2 figli settimane diverse: niente sconto fratello', () => {
+    const q = computeQuote(
+      [
+        mkChild({
+          attendances: [{ weekId: W1, slot: 'full', canteen: false }],
+          includeRegistration: true,
+        }),
+        mkChild({
+          attendances: [{ weekId: W2, slot: 'full', canteen: false }],
+          includeRegistration: true,
+        }),
+      ],
+      { now: SAFE_NOW },
+    )
+    expect(q.lines[1].siblingDiscountTotal).toBe(0)
+    expect(q.lines[1].recurringChild).toBe(65)
+    expect(q.total).toBe(30 + 130)
+  })
+
+  it('3° figlio: sconto solo sulla settimana in comune con altri', () => {
+    const q = computeQuote(
+      [
+        mkChild({
+          attendances: [{ weekId: W1, slot: 'full', canteen: false }],
+          includeRegistration: true,
+        }),
+        mkChild({
+          attendances: [{ weekId: W1, slot: 'full', canteen: false }],
+          includeRegistration: true,
+        }),
+        mkChild({
+          attendances: [
+            { weekId: W1, slot: 'morning', canteen: false },
+            { weekId: W2, slot: 'full', canteen: false },
+          ],
+          includeRegistration: true,
+        }),
+      ],
+      { now: SAFE_NOW },
+    )
+    expect(q.lines[2].siblingDiscountPerWeek).toBe(15)
+    expect(q.lines[2].siblingDiscountTotal).toBe(15)
+    expect(q.lines[2].recurringChild).toBe(40 + 65 - 15)
+  })
+
+  it('includeRegistration false → quota iscrizione 0', () => {
+    const q = computeQuote([mkChild({ includeRegistration: false })], { now: SAFE_NOW })
+    expect(q.registrationTotal).toBe(0)
+    expect(q.registrationPayerCount).toBe(0)
+    expect(q.total).toBe(65)
+  })
+
+  it('iscrizione solo per alcuni figli', () => {
+    const q = computeQuote(
+      [mkChild({ includeRegistration: true }), mkChild({ includeRegistration: false })],
+      { now: SAFE_NOW },
+    )
+    expect(q.registrationPayerCount).toBe(1)
+    expect(q.registrationTotal).toBe(15)
+    expect(q.lines[0].registrationIncluded).toBe(true)
+    expect(q.lines[1].registrationIncluded).toBe(false)
   })
 
   it('tutti gli extra su giornata intera', () => {
@@ -189,8 +272,9 @@ describe('computeQuote', () => {
       earlyDropoff: true,
       latePickupMorning: true,
       latePickupEvening: true,
+      includeRegistration: true,
     })
-    const q = computeQuote([c], SAFE_NOW)
+    const q = computeQuote([c], { now: SAFE_NOW })
     const l = q.lines[0]
     expect(l.preschoolExtra).toBe(5)
     expect(l.earlyDropoff).toBe(5)
@@ -205,7 +289,7 @@ describe('computeQuote', () => {
       attendances: [{ weekId: W1, slot: 'afternoon', canteen: false }],
       latePickupMorning: true,
     })
-    expect(computeQuote([c], SAFE_NOW).lines[0].latePickupMorning).toBe(0)
+    expect(computeQuote([c], { now: SAFE_NOW }).lines[0].latePickupMorning).toBe(0)
   })
 
   it('posticipo sera non si applica a mattina', () => {
@@ -213,7 +297,7 @@ describe('computeQuote', () => {
       attendances: [{ weekId: W1, slot: 'morning', canteen: false }],
       latePickupEvening: true,
     })
-    expect(computeQuote([c], SAFE_NOW).lines[0].latePickupEvening).toBe(0)
+    expect(computeQuote([c], { now: SAFE_NOW }).lines[0].latePickupEvening).toBe(0)
   })
 
   it('più settimane sommano correttamente', () => {
@@ -222,8 +306,9 @@ describe('computeQuote', () => {
         { weekId: W1, slot: 'morning', canteen: false },
         { weekId: W2, slot: 'full', canteen: true },
       ],
+      includeRegistration: true,
     })
-    const q = computeQuote([c], SAFE_NOW)
+    const q = computeQuote([c], { now: SAFE_NOW })
     expect(q.lines[0].weekCount).toBe(2)
     expect(q.lines[0].sumBaseAndCanteen).toBe(40 + 65 + 30)
     expect(q.total).toBe(15 + 135)
@@ -233,8 +318,9 @@ describe('computeQuote', () => {
     const sat = new Date(2026, 6, 4, 10, 0, 0)
     const c = mkChild({
       attendances: [{ weekId: 'w2026-07-06', slot: 'full', canteen: false }],
+      includeRegistration: true,
     })
-    const q = computeQuote([c], sat)
+    const q = computeQuote([c], { now: sat })
     expect(q.lateRegistration.amount).toBe(10)
     expect(q.total).toBe(15 + 65 + 10)
   })

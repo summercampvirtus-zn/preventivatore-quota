@@ -15,6 +15,8 @@ export interface ChildConfig {
   earlyDropoff: boolean
   latePickupMorning: boolean
   latePickupEvening: boolean
+  /** Se true, nel totale entra la quota iscrizione per questo figlio. */
+  includeRegistration: boolean
 }
 
 export const PRICING = {
@@ -52,6 +54,7 @@ export function defaultChildConfig(): ChildConfig {
     earlyDropoff: false,
     latePickupMorning: false,
     latePickupEvening: false,
+    includeRegistration: false,
   }
 }
 
@@ -70,7 +73,7 @@ function normalizeAttendance(a: WeekAttendance): WeekAttendance {
   return {
     weekId: a.weekId,
     slot: a.slot,
-    canteen: a.slot === 'full' && a.canteen,
+    canteen: Boolean(a.canteen),
   }
 }
 
@@ -84,6 +87,7 @@ export function normalizeChild(c: ChildConfig): ChildConfig {
   return {
     ...c,
     attendances,
+    includeRegistration: Boolean(c.includeRegistration),
   }
 }
 
@@ -210,17 +214,46 @@ export interface ChildLineDetail {
   weeklyGross: number
   weeklyNet: number
   recurringChild: number
+  registrationIncluded: boolean
 }
 
 export interface QuoteResult {
   childCount: number
   registrationTotal: number
+  /** Figli con quota iscrizione inclusa nel totale. */
+  registrationPayerCount: number
   weeklyRecurringNet: number
   recurringTotal: number
   lateRegistration: LateRegistrationResult
   total: number
   lines: ChildLineDetail[]
   totalChildWeeks: number
+}
+
+/** Opzioni secondo argomento di `computeQuote`. */
+export interface ComputeQuoteOptions {
+  now?: Date
+}
+
+/** Sconto fratelli (€) solo sulle settimane in cui un altro figlio ha la stessa `weekId`. */
+function siblingDiscountTotalForChild(
+  childIndex: number,
+  normalized: ChildConfig[],
+): number {
+  const tier = siblingDiscountPerWeek(childIndex)
+  if (tier === 0) return 0
+  const self = normalized[childIndex]
+  if (!self) return 0
+  let overlapRows = 0
+  for (const att of self.attendances) {
+    const shared = normalized.some(
+      (other, j) =>
+        j !== childIndex &&
+        other.attendances.some((a) => a.weekId === att.weekId),
+    )
+    if (shared) overlapRows += 1
+  }
+  return tier * overlapRows
 }
 
 function posticipoMorningForRow(slot: TimeSlot, flag: boolean): number {
@@ -235,11 +268,13 @@ function posticipoEveningForRow(slot: TimeSlot, flag: boolean): number {
 
 export function computeQuote(
   children: ChildConfig[],
-  now: Date = new Date(),
+  options?: ComputeQuoteOptions,
 ): QuoteResult {
+  const now = options?.now ?? new Date()
   const normalized = children.map(normalizeChild)
   const n = normalized.length
-  const registrationTotal = n * PRICING.registrationPerChild
+  const registrationPayerCount = normalized.filter((c) => c.includeRegistration).length
+  const registrationTotal = registrationPayerCount * PRICING.registrationPerChild
   const late = computeLateRegistrationSurcharge(now, normalized)
 
   const lines: ChildLineDetail[] = normalized.map((c, index) => {
@@ -247,8 +282,7 @@ export function computeQuote(
     const attendanceLines: AttendanceLineDetail[] = c.attendances.map((a) => {
       const wk = campWeekById(a.weekId)
       const base = baseSlotPrice(a.slot)
-      const cant =
-        a.slot === 'full' && a.canteen ? PRICING.canteen : 0
+      const cant = a.canteen ? PRICING.canteen : 0
       return {
         weekId: a.weekId,
         weekLabel: wk?.label ?? a.weekId,
@@ -283,7 +317,7 @@ export function computeQuote(
 
     const extrasTotal = preschoolExtra + earlyDropoff + lateMorning + lateEvening
     const discPerWeek = siblingDiscountPerWeek(index)
-    const siblingDiscountTotal = discPerWeek * W
+    const siblingDiscountTotal = siblingDiscountTotalForChild(index, normalized)
     const weeklyGross = sumBaseAndCanteen + extrasTotal
     const recurringChild = weeklyGross - siblingDiscountTotal
     const weeklyNet = W > 0 ? recurringChild / W : 0
@@ -303,6 +337,7 @@ export function computeQuote(
       weeklyGross,
       weeklyNet,
       recurringChild,
+      registrationIncluded: Boolean(c.includeRegistration),
     }
   })
 
@@ -315,6 +350,7 @@ export function computeQuote(
   return {
     childCount: n,
     registrationTotal,
+    registrationPayerCount,
     weeklyRecurringNet,
     recurringTotal,
     lateRegistration: late,

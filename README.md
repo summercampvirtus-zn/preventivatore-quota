@@ -56,9 +56,10 @@ npm run check
 ## Note
 
 - Tariffe e regole: [`src/lib/pricing.ts`](src/lib/pricing.ts); calendario settimane camp: [`src/lib/campWeeks.ts`](src/lib/campWeeks.ts) (aggiornare le date a inizio stagione).
-- Per ogni figlio si aggiungono **una o più settimane** dal calendario; **per ogni settimana** si sceglie la fascia (40 / 25 / 65 €) e opzionalmente la **mensa** (+30 €) solo con giornata intera.
-- **Sconto fratelli**: 2° −10 €/sett., 3° −15 €/sett., dal 4° al 6° −20 €/sett. (per ogni settimana di frequenza del figlio).
+- Per ogni figlio si aggiungono **una o più settimane** dal calendario; **per ogni settimana** si sceglie la fascia (40 / 25 / 65 €) e opzionalmente la **mensa** (+30 €) per qualsiasi fascia.
+- **Sconto fratelli**: 2° −10 €, 3° −15 €, dal 4° al 6° −20 € **per settimana in cui almeno un altro figlio ha la stessa settimana** (non su tutte le settimane se i fratelli non coincidono).
 - **Posticipi**: due voci (+5 € ciascuna per settimana compatibile con la fascia di quella riga).
-- **Iscrizione tardiva** (+10 €/combinazione figlio–settimana): calcolata **automaticamente** se sei nella finestra ven 00:00 – lun 07:00 e risulti iscritto alla **prossima** settimana camp del calendario (vedi testo in riepilogo nell’app).
+- **Quota di iscrizione**: opzionale **per ogni figlio** (checkbox nella scheda del figlio); se inclusa, +15 € per quel figlio.
+- **Iscrizione tardiva** (+10 €/combinazione figlio–settimana): calcolata **automaticamente** se sei nella finestra ven 00:00 – lun 07:30 e risulti iscritto alla **prossima** settimana camp del calendario (vedi testo in riepilogo nell’app).
 - Le maggiorazioni per **assenza** non comunicata **non** sono nel tool (gestione in sede al camp).
-- Per iscrizioni ufficiali (es. Easter) usa i link nell’app.
+- Per adesioni ufficiali seguire le comunicazioni della società.

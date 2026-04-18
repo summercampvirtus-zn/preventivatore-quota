@@ -9,11 +9,16 @@
     SLOT_LABELS,
     SLOT_ORDER,
     type ChildConfig,
+    type ChildLineDetail,
     type TimeSlot,
-    type WeekAttendance,
   } from './lib/pricing'
 
   const MAX_CHILDREN = 6
+  /** `false` nasconde il selettore data/ora di test per l’iscrizione tardiva. */
+  const SHOW_TEST_NOW = true
+
+  /** Base URL Vite (slash finale) per asset in `public/` su GitHub Pages. */
+  const pub = import.meta.env.BASE_URL
 
   type Row = ChildConfig & { id: number; name: string }
 
@@ -24,6 +29,8 @@
 
   let children = $state<Row[]>([newRow()])
   let detailsOpen = $state(false)
+  /** Valore `datetime-local`; vuoto = usa l’orario reale del browser. */
+  let testDateTimeLocal = $state('')
 
   function setNumFigli(count: number) {
     const n = Math.min(MAX_CHILDREN, Math.max(1, Math.floor(count)))
@@ -37,17 +44,31 @@
   }
 
   const configs = $derived(children.map(({ name: _n, id: _i, ...c }) => normalizeChild(c)))
-  const quote = $derived(computeQuote(configs))
+  const quote = $derived.by(() => {
+    let now = new Date()
+    if (SHOW_TEST_NOW && testDateTimeLocal.trim() !== '') {
+      const d = new Date(testDateTimeLocal)
+      if (!Number.isNaN(d.getTime())) now = d
+    }
+    return computeQuote(configs, { now })
+  })
 
   function reset() {
     nextId = 1
     children = [newRow()]
     detailsOpen = false
+    testDateTimeLocal = ''
   }
 
   function scrollToSummary() {
     document.getElementById('riepilogo')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
     detailsOpen = true
+  }
+
+  /** N. settimane in cui lo sconto fratelli si applica (tier > 0). */
+  function siblingOverlapWeeks(l: ChildLineDetail): number {
+    if (l.siblingDiscountPerWeek <= 0) return 0
+    return Math.round(l.siblingDiscountTotal / l.siblingDiscountPerWeek)
   }
 
   function weekOptionsForRow(child: Row, rowIndex: number) {
@@ -73,32 +94,52 @@
     child.attendances = child.attendances.filter((_, i) => i !== idx)
   }
 
-  function onAttendanceSlotChange(a: WeekAttendance, slot: TimeSlot) {
-    a.slot = slot
-    if (slot !== 'full') a.canteen = false
-  }
 </script>
 
 <div class="app">
   <header class="hero-stack" aria-labelledby="page-title">
     <div class="hero-brand">
-      <p class="eyebrow">Polisportiva Virtus · Centri estivi</p>
-      <h1 id="page-title">Preventivatore Summer Camp</h1>
+      <div class="hero-brand-inner">
+        <div class="hero-brand-text">
+          <p class="eyebrow">Polisportiva Virtus · Centri estivi</p>
+          <h1 id="page-title">Preventivatore Summer Camp</h1>
+        </div>
+        <div class="hero-brand-logos" aria-hidden="true">
+          <img
+            class="hero-logo hero-logo--camp"
+            src={`${pub}logo-summer-camp-zane.png`}
+            alt=""
+            decoding="async"
+          />
+          <img
+            class="hero-logo hero-logo--shield"
+            src={`${pub}logo-virtus-zane-shield.png`}
+            alt=""
+            decoding="async"
+          />
+        </div>
+      </div>
     </div>
     <div class="hero-intro">
       <p class="lede">
-        Tariffe <strong>settimanali</strong> del listino: per ogni settimana camp scegli la <strong>fascia</strong>
-        (mattina, pomeriggio o giornata intera + mensa). Fino a {MAX_CHILDREN} figli; sconti fratelli e
-        iscrizione tardiva (se applicabile) calcolati automaticamente.
+        Utilizza il preventivatore del Virtus Summer Camp per il calcolo esatto del costo.
+      </p>
+      <p class="lede">
+        Le tariffe sono <strong>settimanali</strong>, pertanto selezionare la fascia quotidiana (mattina,
+        pomeriggio, giornata intera) più tutti i servizi accessori (mensa, anticipo, posticipo, ecc.).
+      </p>
+      <p class="lede">
+        Per la scuola dell’infanzia ricordarsi di selezionare la maggiorazione di {formatEur(
+          PRICING.preschoolExtra,
+        )} per il calcolo completo della quota.
+      </p>
+      <p class="lede">
+        Lo sconto fratelli (solo se due o più figli frequentano la stessa settimana) e l’eventuale iscrizione
+        tardiva sono calcolati automaticamente dal sistema.
       </p>
       <p class="disclaimer">
-        Importi indicativi: verifica in segreteria. Eventuali maggiorazioni per <strong>assenza</strong> non
-        comunicata non sono incluse qui (gestite in sede al camp). Easter:
-        <a
-          href="https://docs.google.com/forms/d/e/1FAIpQLSfBUGXXRYMp7Zw78Wz2RieTZt1dvUy6j_10isWCarTI_H86qA/viewform"
-          target="_blank"
-          rel="noreferrer">modulo Google</a
-        >.
+        L’assenza non comunicata comporta una penale sulla successiva iscrizione. Tale penale verrà gestita
+        direttamente dalla segreteria del Camp.
       </p>
       <div class="pill-row" aria-hidden="true">
         <span class="pill">Volley</span>
@@ -114,24 +155,44 @@
   <section class="toolbar card" aria-label="Impostazioni generali">
     <div class="field num-figli-field">
       <label for="num-figli">Quanti figli?</label>
-      <select
-        id="num-figli"
-        class="select-num-figli"
-        value={String(children.length)}
-        onchange={(e) =>
-          setNumFigli(Number((e.currentTarget as HTMLSelectElement).value))}
-      >
-        {#each Array.from({ length: MAX_CHILDREN }, (_, i) => i + 1) as n (n)}
-          <option value={String(n)}>{n}</option>
-        {/each}
-      </select>
+      <div class="toolbar-controls-row">
+        <select
+          id="num-figli"
+          class="select-num-figli"
+          value={String(children.length)}
+          onchange={(e) =>
+            setNumFigli(Number((e.currentTarget as HTMLSelectElement).value))}
+        >
+          {#each Array.from({ length: MAX_CHILDREN }, (_, i) => i + 1) as n (n)}
+            <option value={String(n)}>{n}</option>
+          {/each}
+        </select>
+        <div class="toolbar-actions">
+          <button type="button" class="btn primary" onclick={scrollToSummary}>Riepilogo</button>
+          <button type="button" class="btn ghost" onclick={reset}>Azzera</button>
+        </div>
+      </div>
       <span class="hint">Una scheda per figlio (1–{MAX_CHILDREN}).</span>
     </div>
-    <div class="toolbar-actions">
-      <button type="button" class="btn primary" onclick={scrollToSummary}>Calcola / Riepilogo</button>
-      <button type="button" class="btn ghost" onclick={reset}>Azzera</button>
-    </div>
   </section>
+
+  {#if SHOW_TEST_NOW}
+    <section class="card dev-test-now" aria-label="Data simulata per test iscrizione tardiva">
+      <div class="field dev-test-now-field">
+        <label for="test-now-dt">Data e ora simulata (“oggi” per il calcolo)</label>
+        <input
+          id="test-now-dt"
+          class="input-datetime-test"
+          type="datetime-local"
+          bind:value={testDateTimeLocal}
+        />
+        <span class="hint"
+          >Lasciare vuoto per usare l’orario reale. Utile per provare la finestra ven 00:00 – lun 07:30 della
+          settimana camp successiva al calendario.</span
+        >
+      </div>
+    </section>
+  {/if}
 
   <div class="children-grid">
     {#each children as child, i (child.id)}
@@ -149,6 +210,16 @@
             placeholder="Es. Marco"
             autocomplete="name"
           />
+        </div>
+
+        <div class="field child-reg-field">
+          <label class="check">
+            <input type="checkbox" bind:checked={child.includeRegistration} />
+            <span
+              >Includi quota di iscrizione ({formatEur(PRICING.registrationPerChild)} per questo
+              figlio)</span
+            >
+          </label>
         </div>
 
         <div class="attendance-block">
@@ -184,22 +255,14 @@
               </div>
               <div class="field">
                 <label for="sl-{child.id}-{j}">Fascia</label>
-                <select
-                  id="sl-{child.id}-{j}"
-                  bind:value={att.slot}
-                  onchange={(e) =>
-                    onAttendanceSlotChange(
-                      att,
-                      (e.currentTarget as HTMLSelectElement).value as TimeSlot,
-                    )}
-                >
+                <select id="sl-{child.id}-{j}" bind:value={att.slot}>
                   {#each SLOT_ORDER as sk (sk)}
                     <option value={sk}>{SLOT_LABELS[sk]}</option>
                   {/each}
                 </select>
               </div>
-              <label class="check mensa-check" class:dim={att.slot !== 'full'}>
-                <input type="checkbox" bind:checked={att.canteen} disabled={att.slot !== 'full'} />
+              <label class="check mensa-check">
+                <input type="checkbox" bind:checked={att.canteen} />
                 <span>Mensa (+{formatEur(PRICING.canteen)})</span>
               </label>
               {#if child.attendances.length > 1}
@@ -246,12 +309,16 @@
   <section id="riepilogo" class="card summary" aria-labelledby="riepilogo-title">
     <h2 id="riepilogo-title">Riepilogo</h2>
     <dl class="totals">
+      {#if quote.registrationTotal > 0}
+        <div>
+          <dt
+            >Iscrizione ({quote.registrationPayerCount} × {formatEur(PRICING.registrationPerChild)})</dt
+          >
+          <dd>{formatEur(quote.registrationTotal)}</dd>
+        </div>
+      {/if}
       <div>
-        <dt>Iscrizione ({quote.childCount} × {formatEur(PRICING.registrationPerChild)})</dt>
-        <dd>{formatEur(quote.registrationTotal)}</dd>
-      </div>
-      <div>
-        <dt>Quota figli (fino a maggiorazione tardiva)</dt>
+        <dt>Quota figli</dt>
         <dd>{formatEur(quote.weeklyRecurringNet)}</dd>
       </div>
       {#if quote.lateRegistration.amount > 0}
@@ -270,9 +337,6 @@
       </div>
     </dl>
     <p class="totals-explain">
-      {#if quote.lateRegistration.nextWeekLabel}
-        Prossima settimana camp (calendario): <strong>{quote.lateRegistration.nextWeekLabel}</strong>.
-      {/if}
       Finestra tardiva attiva ora: <strong>{quote.lateRegistration.inWindow ? 'sì' : 'no'}</strong>.
       Iscrizione a quella settimana: <strong
         >{quote.lateRegistration.hasNextWeekEnrollment ? 'sì' : 'no'}</strong
@@ -295,35 +359,55 @@
     </button>
 
     {#if detailsOpen}
-      <ul class="detail-lines">
-        {#each quote.lines as line, ci}
-          <li>
-            <strong>{children[ci]?.name?.trim() || `Figlio ${ci + 1}`}</strong>
-            <span class="mono">
-              {#each line.attendanceLines as al}
-                <br />{al.weekLabel}: {SLOT_LABELS[al.slot]}
-                {formatEur(al.baseSlot + al.canteen)}
-              {/each}
-              {#if line.preschoolExtra > 0}<br />+ infanzia {formatEur(line.preschoolExtra)}{/if}
-              {#if line.earlyDropoff > 0}<br />+ anticipo {formatEur(line.earlyDropoff)}{/if}
-              {#if line.latePickupMorning > 0}<br />+ posticipo mattina {formatEur(line.latePickupMorning)}{/if}
-              {#if line.latePickupEvening > 0}<br />+ posticipo sera {formatEur(line.latePickupEvening)}{/if}
-              {#if line.siblingDiscountTotal > 0}<br />− sconto fratelli {formatEur(line.siblingDiscountTotal)}{/if}
-              <br /><strong>= {formatEur(line.recurringChild)}</strong>
-            </span>
-          </li>
-        {/each}
-      </ul>
+      <div class="detail-panel">
+        <h3 class="detail-panel-title">Dettaglio per figlio</h3>
+        <ul class="detail-lines">
+          {#each quote.lines as line, ci}
+            <li class="detail-child">
+              <strong class="detail-child-name">{children[ci]?.name?.trim() || `Figlio ${ci + 1}`}</strong>
+              <ul class="detail-weeks detail-weeks--compact mono">
+                {#each line.attendanceLines as al}
+                  <li class="detail-week-one">
+                    <span class="detail-week-head">{al.weekLabel}</span>
+                    · {SLOT_LABELS[al.slot]}{#if al.canteen > 0} + mensa{/if}:
+                    {formatEur(al.baseSlot + al.canteen)}
+                  </li>
+                {/each}
+              </ul>
+              <ul class="detail-totals mono">
+                <li>
+                  Attività ({line.weekCount} sett.): {formatEur(line.sumBaseAndCanteen)}
+                </li>
+                {#if line.extrasTotal > 0}
+                  <li>Supplementi: {formatEur(line.extrasTotal)}</li>
+                {/if}
+                {#if line.siblingDiscountTotal > 0}
+                  <li>
+                    Sconto fratelli: −{formatEur(line.siblingDiscountTotal)} ({siblingOverlapWeeks(
+                      line,
+                    )} sett. in comune)
+                  </li>
+                {/if}
+                {#if line.registrationIncluded}
+                  <li>Quota iscrizione: {formatEur(PRICING.registrationPerChild)}</li>
+                {/if}
+                <li><strong>Totale ricorrente figlio: {formatEur(line.recurringChild)}</strong></li>
+              </ul>
+            </li>
+          {/each}
+        </ul>
+        <p class="detail-late-row mono">
+          <strong>Iscrizione tardiva</strong>
+          {#if quote.lateRegistration.amount > 0}
+            · {quote.lateRegistration.qualifyingChildWeeks} × {formatEur(PRICING.lateRegistrationPerWeek)} =
+            {formatEur(quote.lateRegistration.amount)}
+          {:else}
+            · <span class="detail-muted">{formatEur(0)}</span>
+          {/if}
+        </p>
+      </div>
     {/if}
   </section>
 
-  <footer class="site-footer">
-    <p>
-      Ispirazione:
-      <a href="https://www.asdludens.com/summercamp.php#calcolatore" target="_blank" rel="noreferrer"
-        >Ludens</a
-      >
-      · Virtus · solo browser.
-    </p>
-  </footer>
+  <footer class="site-footer"></footer>
 </div>
