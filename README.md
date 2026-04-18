@@ -55,11 +55,12 @@ npm run check
 
 ## Note
 
-- Tariffe e regole: [`src/lib/pricing.ts`](src/lib/pricing.ts); calendario settimane camp: [`src/lib/campWeeks.ts`](src/lib/campWeeks.ts) (aggiornare le date a inizio stagione).
+- Tariffe e regole: [`src/lib/pricing.ts`](src/lib/pricing.ts); **calendario, anno e periodi prenotabili**: [`src/lib/campSeason.config.ts`](src/lib/campSeason.config.ts) (re-export anche da [`src/lib/campWeeks.ts`](src/lib/campWeeks.ts); aggiornare a inizio stagione).
 - Per ogni figlio si aggiungono **una o più settimane** dal calendario; **per ogni settimana** si sceglie la fascia (40 / 25 / 65 €) e opzionalmente la **mensa** (+30 €) per qualsiasi fascia.
 - **Sconto fratelli**: 2° −10 €, 3° −15 €, dal 4° al 6° −20 € **per settimana in cui almeno un altro figlio ha la stessa settimana** (non su tutte le settimane se i fratelli non coincidono).
 - **Posticipi**: due voci (+5 € ciascuna per settimana compatibile con la fascia di quella riga).
 - **Quota di iscrizione**: opzionale **per ogni figlio** (checkbox nella scheda del figlio); se inclusa, +15 € per quel figlio.
-- **Iscrizione tardiva** (+10 €/combinazione figlio–settimana): calcolata **automaticamente** se sei nella finestra ven 00:00 – lun 07:30 e risulti iscritto alla **prossima** settimana camp del calendario (vedi testo in riepilogo nell’app).
+- **Iscrizione tardiva** (+10 € per ogni combinazione figlio–settimana): per **ogni settimana camp selezionata**, se l’orario “oggi” cade nella finestra **ven 00:01 – lun 07:29** (rispetto al lunedì di inizio di **quella** settimana), si applica la maggiorazione su quella riga. Vedi riepilogo nell’app.
+- **Chiusura iscrizioni** a una settimana camp: stesso limite (**lunedì 07:30** del lunedì di inizio di quella settimana); nel preventivatore quella settimana **non compare** più tra le opzioni e le righe già impostate vengono spostate sulla prima settimana successiva ancora aperta.
 - Le maggiorazioni per **assenza** non comunicata **non** sono nel tool (gestione in sede al camp).
 - Per adesioni ufficiali seguire le comunicazioni della società.

@@ -1,15 +1,15 @@
 import { describe, it, expect } from 'vitest'
-import { CAMP_WEEKS, campWeekById } from './campWeeks'
-
-/** Periodi camp consentiti (estremi inclusi, lun-ven). */
-const PERIOD_1 = { from: '2026-06-08', to: '2026-08-07' }
-const PERIOD_2 = { from: '2026-08-17', to: '2026-09-04' }
+import {
+  BOOKABLE_MACRO_PERIODS,
+  CAMP_SEASON_YEAR,
+  CAMP_WEEKS,
+  campWeekById,
+} from './campWeeks'
 
 function inPeriod(mondayISO: string): boolean {
   const fri = addDays(mondayISO, 4)
-  return (
-    (mondayISO >= PERIOD_1.from && fri <= PERIOD_1.to) ||
-    (mondayISO >= PERIOD_2.from && fri <= PERIOD_2.to)
+  return BOOKABLE_MACRO_PERIODS.some(
+    (p) => mondayISO >= p.fromMondayISO && fri <= p.throughFridayISO,
   )
 }
 
@@ -55,13 +55,20 @@ describe('CAMP_WEEKS', () => {
       expect(CAMP_WEEKS[i].mondayISO > CAMP_WEEKS[i - 1].mondayISO).toBe(true)
     }
   })
+
+  it('BOOKABLE_MACRO_PERIODS copre due blocchi', () => {
+    expect(BOOKABLE_MACRO_PERIODS).toHaveLength(2)
+    expect(BOOKABLE_MACRO_PERIODS[0].id).toBe('p1')
+    expect(BOOKABLE_MACRO_PERIODS[1].id).toBe('p2')
+  })
 })
 
 describe('campWeekById', () => {
   it('restituisce la settimana corretta', () => {
-    const w = campWeekById('w2026-07-06')
+    const id = `w${CAMP_SEASON_YEAR}-07-06`
+    const w = campWeekById(id)
     expect(w).toBeDefined()
-    expect(w!.mondayISO).toBe('2026-07-06')
+    expect(w!.mondayISO).toBe(`${CAMP_SEASON_YEAR}-07-06`)
   })
 
   it('restituisce undefined per id inesistente', () => {

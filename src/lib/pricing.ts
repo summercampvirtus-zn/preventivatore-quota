@@ -44,20 +44,6 @@ export function siblingDiscountPerWeek(childIndex: number): number {
   return tier[Math.min(childIndex, tier.length - 1)] ?? 0
 }
 
-export function defaultChildConfig(): ChildConfig {
-  const first = CAMP_WEEKS[0]
-  return {
-    attendances: first
-      ? [{ weekId: first.id, slot: 'full', canteen: false }]
-      : [],
-    preschool: false,
-    earlyDropoff: false,
-    latePickupMorning: false,
-    latePickupEvening: false,
-    includeRegistration: false,
-  }
-}
-
 function baseSlotPrice(slot: TimeSlot): number {
   switch (slot) {
     case 'morning':
@@ -74,20 +60,6 @@ function normalizeAttendance(a: WeekAttendance): WeekAttendance {
     weekId: a.weekId,
     slot: a.slot,
     canteen: Boolean(a.canteen),
-  }
-}
-
-export function normalizeChild(c: ChildConfig): ChildConfig {
-  let attendances = (c.attendances?.length ? c.attendances : []).map(normalizeAttendance)
-  const validIds = new Set(CAMP_WEEKS.map((w) => w.id))
-  attendances = attendances.filter((a) => validIds.has(a.weekId))
-  if (attendances.length === 0 && CAMP_WEEKS[0]) {
-    attendances = [{ weekId: CAMP_WEEKS[0].id, slot: 'full', canteen: false }]
-  }
-  return {
-    ...c,
-    attendances,
-    includeRegistration: Boolean(c.includeRegistration),
   }
 }
 
@@ -126,12 +98,13 @@ export function nextCampWeekAfterCurrentCalendarWeek(now: Date): CampWeek | unde
   return firstCampWeekOnOrAfter(targetMonday)
 }
 
-function fridayMidnightBeforeMonday(mondayISO: string): Date {
+/** Venerdì 00:01 precedente al lunedì di inizio settimana camp (inizio finestra iscrizione tardiva). */
+function fridayLateWindowStart(mondayISO: string): Date {
   const [yy, mm, dd] = mondayISO.split('-').map(Number)
   const monday = new Date(yy, mm - 1, dd, 0, 0, 0, 0)
   const fri = new Date(monday)
   fri.setDate(fri.getDate() - 3)
-  fri.setHours(0, 0, 0, 0)
+  fri.setHours(0, 1, 0, 0)
   return fri
 }
 
@@ -140,8 +113,94 @@ function mondaySevenThirtyAm(mondayISO: string): Date {
   return new Date(yy, mm - 1, dd, 7, 30, 0, 0)
 }
 
+/** Iscrizione alla settimana camp consentita fino a lunedì 07:30 (escluso) del suo lunedì di inizio. */
+export function isCampWeekEnrollable(week: CampWeek, now: Date): boolean {
+  return now.getTime() < mondaySevenThirtyAm(week.mondayISO).getTime()
+}
+
+/** Settimane ancora iscrivibili; se nessuna (stagione passata), tutte le settimane come fallback. */
+export function enrollableCampWeeks(now: Date): CampWeek[] {
+  const open = CAMP_WEEKS.filter((w) => isCampWeekEnrollable(w, now))
+  return open.length > 0 ? open : [...CAMP_WEEKS]
+}
+
+function remapAttendancesForEnrollmentDeadline(
+  attendances: WeekAttendance[],
+  now: Date,
+): WeekAttendance[] {
+  const pool = enrollableCampWeeks(now)
+  const used = new Set<string>()
+  const out: WeekAttendance[] = []
+
+  function pickNext(): CampWeek | undefined {
+    return pool.find((w) => !used.has(w.id))
+  }
+
+  for (const a of attendances) {
+    const wk = campWeekById(a.weekId)
+    const keep = wk && isCampWeekEnrollable(wk, now) && !used.has(a.weekId)
+    if (keep) {
+      used.add(a.weekId)
+      out.push(normalizeAttendance(a))
+      continue
+    }
+    const p = pickNext()
+    if (!p) break
+    used.add(p.id)
+    out.push(normalizeAttendance({ ...a, weekId: p.id }))
+  }
+
+  if (out.length === 0 && pool[0]) {
+    out.push({ weekId: pool[0].id, slot: 'full', canteen: false })
+  }
+  return out
+}
+
+export function normalizeChild(c: ChildConfig, now?: Date): ChildConfig {
+  let attendances = (c.attendances?.length ? c.attendances : []).map(normalizeAttendance)
+  const validIds = new Set(CAMP_WEEKS.map((w) => w.id))
+  attendances = attendances.filter((a) => validIds.has(a.weekId))
+
+  const fallbackWeek = (): CampWeek | undefined => {
+    if (now != null) return enrollableCampWeeks(now)[0]
+    return CAMP_WEEKS[0]
+  }
+
+  if (attendances.length === 0) {
+    const fb = fallbackWeek()
+    if (fb) attendances = [{ weekId: fb.id, slot: 'full', canteen: false }]
+  }
+
+  if (now != null) {
+    attendances = remapAttendancesForEnrollmentDeadline(attendances, now)
+  }
+
+  if (attendances.length === 0) {
+    const fb = fallbackWeek()
+    if (fb) attendances = [{ weekId: fb.id, slot: 'full', canteen: false }]
+  }
+
+  return {
+    ...c,
+    attendances,
+    includeRegistration: Boolean(c.includeRegistration),
+  }
+}
+
+export function defaultChildConfig(now?: Date): ChildConfig {
+  const first = now ? enrollableCampWeeks(now)[0] : CAMP_WEEKS[0]
+  return {
+    attendances: first ? [{ weekId: first.id, slot: 'full', canteen: false }] : [],
+    preschool: false,
+    earlyDropoff: false,
+    latePickupMorning: false,
+    latePickupEvening: false,
+    includeRegistration: false,
+  }
+}
+
 export function isInLateRegistrationWindow(now: Date, targetWeek: CampWeek): boolean {
-  const start = fridayMidnightBeforeMonday(targetWeek.mondayISO)
+  const start = fridayLateWindowStart(targetWeek.mondayISO)
   const end = mondaySevenThirtyAm(targetWeek.mondayISO)
   return now.getTime() >= start.getTime() && now.getTime() < end.getTime()
 }
@@ -159,35 +218,33 @@ export function computeLateRegistrationSurcharge(
   now: Date,
   children: ChildConfig[],
 ): LateRegistrationResult {
-  const nextW = nextCampWeekAfterCurrentCalendarWeek(now)
-  if (!nextW) {
-    return {
-      amount: 0,
-      qualifyingChildWeeks: 0,
-      nextWeekId: null,
-      nextWeekLabel: null,
-      inWindow: false,
-      hasNextWeekEnrollment: false,
-    }
-  }
-  const inWindow = isInLateRegistrationWindow(now, nextW)
   let qualifying = 0
+  let refFromEnrollment: CampWeek | undefined
+
   for (const ch of children) {
-    const n = normalizeChild(ch)
+    const n = normalizeChild(ch, now)
     for (const a of n.attendances) {
-      if (a.weekId === nextW.id) qualifying += 1
+      const wk = campWeekById(a.weekId)
+      if (wk && isInLateRegistrationWindow(now, wk)) {
+        qualifying += 1
+        refFromEnrollment ??= wk
+      }
     }
   }
-  const hasNext = qualifying > 0
-  const amount =
-    inWindow && hasNext ? qualifying * PRICING.lateRegistrationPerWeek : 0
+
+  const inWindow = CAMP_WEEKS.some((w) => isInLateRegistrationWindow(now, w))
+  const amount = qualifying * PRICING.lateRegistrationPerWeek
+
+  const refWeek =
+    refFromEnrollment ?? CAMP_WEEKS.find((w) => isInLateRegistrationWindow(now, w))
+
   return {
     amount,
     qualifyingChildWeeks: qualifying,
-    nextWeekId: nextW.id,
-    nextWeekLabel: nextW.label,
+    nextWeekId: refWeek?.id ?? null,
+    nextWeekLabel: refWeek?.label ?? null,
     inWindow,
-    hasNextWeekEnrollment: hasNext,
+    hasNextWeekEnrollment: qualifying > 0,
   }
 }
 
@@ -271,7 +328,7 @@ export function computeQuote(
   options?: ComputeQuoteOptions,
 ): QuoteResult {
   const now = options?.now ?? new Date()
-  const normalized = children.map(normalizeChild)
+  const normalized = children.map((c) => normalizeChild(c, now))
   const n = normalized.length
   const registrationPayerCount = normalized.filter((c) => c.includeRegistration).length
   const registrationTotal = registrationPayerCount * PRICING.registrationPerChild

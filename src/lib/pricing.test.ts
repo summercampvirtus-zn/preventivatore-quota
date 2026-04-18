@@ -3,6 +3,7 @@ import { CAMP_WEEKS } from './campWeeks'
 import {
   siblingDiscountPerWeek,
   normalizeChild,
+  isCampWeekEnrollable,
   isInLateRegistrationWindow,
   computeLateRegistrationSurcharge,
   computeQuote,
@@ -75,6 +76,27 @@ describe('normalizeChild', () => {
     expect(n.attendances).toHaveLength(1)
     expect(n.attendances[0].weekId).toBe(CAMP_WEEKS[0].id)
   })
+
+  it('con now dopo chiusura iscrizioni rimappa la settimana 8–12 giu', () => {
+    const now = new Date(2026, 5, 8, 7, 31, 0)
+    const n = normalizeChild(mkChild(), now)
+    expect(n.attendances[0].weekId).toBe(W2)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// isCampWeekEnrollable
+// ---------------------------------------------------------------------------
+describe('isCampWeekEnrollable', () => {
+  const wJune8 = CAMP_WEEKS.find((w) => w.id === 'w2026-06-08')!
+
+  it('lunedì 8 giu 07:29 → ancora iscrivibile', () => {
+    expect(isCampWeekEnrollable(wJune8, new Date(2026, 5, 8, 7, 29, 0))).toBe(true)
+  })
+
+  it('lunedì 8 giu 07:30 → non iscrivibile', () => {
+    expect(isCampWeekEnrollable(wJune8, new Date(2026, 5, 8, 7, 30, 0))).toBe(false)
+  })
 })
 
 // ---------------------------------------------------------------------------
@@ -87,8 +109,12 @@ describe('isInLateRegistrationWindow', () => {
     expect(isInLateRegistrationWindow(new Date(2026, 6, 2, 23, 59, 59), week)).toBe(false)
   })
 
-  it('venerdì 00:00 → true (inizio finestra)', () => {
-    expect(isInLateRegistrationWindow(new Date(2026, 6, 3, 0, 0, 0), week)).toBe(true)
+  it('venerdì 00:00 → false (finestra da 00:01)', () => {
+    expect(isInLateRegistrationWindow(new Date(2026, 6, 3, 0, 0, 0), week)).toBe(false)
+  })
+
+  it('venerdì 00:01 → true (inizio finestra)', () => {
+    expect(isInLateRegistrationWindow(new Date(2026, 6, 3, 0, 1, 0), week)).toBe(true)
   })
 
   it('sabato 12:00 → true', () => {
@@ -150,6 +176,18 @@ describe('computeLateRegistrationSurcharge', () => {
     const r = computeLateRegistrationSurcharge(sat, [enrolled, enrolled])
     expect(r.qualifyingChildWeeks).toBe(2)
     expect(r.amount).toBe(2 * PRICING.lateRegistrationPerWeek)
+  })
+
+  it('lunedì 8 giu 06:59 + iscritto a quella settimana → maggiorazione (finestra per settimana selezionata)', () => {
+    const now = new Date(2026, 5, 8, 6, 59, 0)
+    const c = mkChild({
+      attendances: [{ weekId: 'w2026-06-08', slot: 'full', canteen: false }],
+    })
+    const r = computeLateRegistrationSurcharge(now, [c])
+    expect(r.inWindow).toBe(true)
+    expect(r.hasNextWeekEnrollment).toBe(true)
+    expect(r.amount).toBe(PRICING.lateRegistrationPerWeek)
+    expect(r.nextWeekId).toBe('w2026-06-08')
   })
 })
 

@@ -4,6 +4,7 @@
     computeQuote,
     defaultChildConfig,
     formatEur,
+    isCampWeekEnrollable,
     normalizeChild,
     PRICING,
     SLOT_LABELS,
@@ -22,15 +23,26 @@
 
   type Row = ChildConfig & { id: number; name: string }
 
+  /** Valore `datetime-local`; vuoto = usa l’orario reale del browser. */
+  let testDateTimeLocal = $state('')
+
+  /** Stesso istante usato dal preventivo (reale o simulato). */
+  const effectiveNow = $derived.by(() => {
+    let now = new Date()
+    if (SHOW_TEST_NOW && testDateTimeLocal.trim() !== '') {
+      const d = new Date(testDateTimeLocal)
+      if (!Number.isNaN(d.getTime())) now = d
+    }
+    return now
+  })
+
   let nextId = 1
   function newRow(): Row {
-    return { id: nextId++, name: '', ...defaultChildConfig() }
+    return { id: nextId++, name: '', ...defaultChildConfig(effectiveNow) }
   }
 
   let children = $state<Row[]>([newRow()])
   let detailsOpen = $state(false)
-  /** Valore `datetime-local`; vuoto = usa l’orario reale del browser. */
-  let testDateTimeLocal = $state('')
 
   function setNumFigli(count: number) {
     const n = Math.min(MAX_CHILDREN, Math.max(1, Math.floor(count)))
@@ -43,15 +55,35 @@
     }
   }
 
-  const configs = $derived(children.map(({ name: _n, id: _i, ...c }) => normalizeChild(c)))
-  const quote = $derived.by(() => {
-    let now = new Date()
-    if (SHOW_TEST_NOW && testDateTimeLocal.trim() !== '') {
-      const d = new Date(testDateTimeLocal)
-      if (!Number.isNaN(d.getTime())) now = d
+  function sameAtt(
+    a: { weekId: string; slot: TimeSlot; canteen: boolean }[],
+    b: typeof a,
+  ): boolean {
+    if (a.length !== b.length) return false
+    return a.every(
+      (x, i) =>
+        x.weekId === b[i]?.weekId && x.slot === b[i]?.slot && x.canteen === b[i]?.canteen,
+    )
+  }
+
+  /** Allinea le settimane alle scadenze iscrizione rispetto a `effectiveNow`. */
+  $effect.pre(() => {
+    const now = effectiveNow
+    for (const ch of children) {
+      const { id: _id, name: _nm, ...cfg } = ch
+      const n = normalizeChild(cfg, now)
+      if (!sameAtt(ch.attendances, n.attendances)) {
+        ch.attendances = n.attendances
+      }
     }
-    return computeQuote(configs, { now })
   })
+
+  const quote = $derived(
+    computeQuote(
+      children.map(({ name: _n, id: _i, ...c }) => c),
+      { now: effectiveNow },
+    ),
+  )
 
   function reset() {
     nextId = 1
@@ -72,16 +104,20 @@
   }
 
   function weekOptionsForRow(child: Row, rowIndex: number) {
+    const now = effectiveNow
     const cur = child.attendances[rowIndex]?.weekId
     const other = new Set(
       child.attendances.map((a, i) => (i === rowIndex ? null : a.weekId)).filter(Boolean) as string[],
     )
-    return CAMP_WEEKS.filter((w) => w.id === cur || !other.has(w.id))
+    return CAMP_WEEKS.filter(
+      (w) => (w.id === cur || !other.has(w.id)) && isCampWeekEnrollable(w, now),
+    )
   }
 
   function addAttendance(child: Row) {
     const used = new Set(child.attendances.map((a) => a.weekId))
-    const next = CAMP_WEEKS.find((w) => !used.has(w.id))
+    const now = effectiveNow
+    const next = CAMP_WEEKS.find((w) => !used.has(w.id) && isCampWeekEnrollable(w, now))
     if (!next) return
     child.attendances = [
       ...child.attendances,
@@ -337,10 +373,13 @@
       </div>
     </dl>
     <p class="totals-explain">
-      Finestra tardiva attiva ora: <strong>{quote.lateRegistration.inWindow ? 'sì' : 'no'}</strong>.
-      Iscrizione a quella settimana: <strong
+      Finestra tardiva attiva ora: <strong>{quote.lateRegistration.inWindow ? 'sì' : 'no'}</strong>
+      (per ogni settimana camp: dal <strong>venerdì 00:01</strong> al <strong>lunedì 07:29</strong> del
+      suo lunedì di inizio; la maggiorazione vale sulle righe in cui quella settimana è in finestra).
+      Almeno una riga in finestra: <strong
         >{quote.lateRegistration.hasNextWeekEnrollment ? 'sì' : 'no'}</strong
       >. Settimane di frequenza totali (somma righe): <strong>{quote.totalChildWeeks}</strong>.
+      Le settimane camp non sono più selezionabili dopo il lunedì 07:30 del loro inizio.
     </p>
     <dl class="totals totals-tail">
       <div class="grand">
