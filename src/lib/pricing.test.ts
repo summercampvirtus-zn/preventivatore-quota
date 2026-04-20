@@ -19,11 +19,17 @@ const SAFE_NOW = new Date(2026, 4, 1)
 
 function mkChild(ov: Partial<ChildConfig> = {}): ChildConfig {
   return {
-    attendances: [{ weekId: W1, slot: 'full', canteen: false }],
-    preschool: false,
-    earlyDropoff: false,
-    latePickupMorning: false,
-    latePickupEvening: false,
+    attendances: [
+      {
+        weekId: W1,
+        slot: 'full',
+        canteen: false,
+        preschool: false,
+        earlyDropoff: false,
+        latePickupMorning: false,
+        latePickupEvening: false,
+      },
+    ],
     includeRegistration: false,
     ...ov,
   }
@@ -306,10 +312,17 @@ describe('computeQuote', () => {
 
   it('tutti gli extra su giornata intera', () => {
     const c = mkChild({
-      preschool: true,
-      earlyDropoff: true,
-      latePickupMorning: true,
-      latePickupEvening: true,
+      attendances: [
+        {
+          weekId: W1,
+          slot: 'full',
+          canteen: false,
+          preschool: true,
+          earlyDropoff: true,
+          latePickupMorning: true,
+          latePickupEvening: true,
+        },
+      ],
       includeRegistration: true,
     })
     const q = computeQuote([c], { now: SAFE_NOW })
@@ -324,16 +337,34 @@ describe('computeQuote', () => {
 
   it('posticipo mattina non si applica a pomeriggio', () => {
     const c = mkChild({
-      attendances: [{ weekId: W1, slot: 'afternoon', canteen: false }],
-      latePickupMorning: true,
+      attendances: [
+        {
+          weekId: W1,
+          slot: 'afternoon',
+          canteen: false,
+          latePickupMorning: true,
+          preschool: false,
+          earlyDropoff: false,
+          latePickupEvening: false,
+        },
+      ],
     })
     expect(computeQuote([c], { now: SAFE_NOW }).lines[0].latePickupMorning).toBe(0)
   })
 
   it('posticipo sera non si applica a mattina', () => {
     const c = mkChild({
-      attendances: [{ weekId: W1, slot: 'morning', canteen: false }],
-      latePickupEvening: true,
+      attendances: [
+        {
+          weekId: W1,
+          slot: 'morning',
+          canteen: false,
+          latePickupEvening: true,
+          preschool: false,
+          earlyDropoff: false,
+          latePickupMorning: false,
+        },
+      ],
     })
     expect(computeQuote([c], { now: SAFE_NOW }).lines[0].latePickupEvening).toBe(0)
   })

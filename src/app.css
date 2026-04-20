@@ -880,6 +880,12 @@ fieldset.toggles legend {
   align-self: center;
 }
 
+.opt-week-check {
+  margin: 0;
+  font-size: 0.79rem;
+  grid-column: 1 / -1;
+}
+
 .small-remove {
   align-self: center;
   justify-self: start;

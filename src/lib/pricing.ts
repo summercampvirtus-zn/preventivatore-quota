@@ -7,14 +7,14 @@ export interface WeekAttendance {
   weekId: string
   slot: TimeSlot
   canteen: boolean
+  preschool?: boolean
+  earlyDropoff?: boolean
+  latePickupMorning?: boolean
+  latePickupEvening?: boolean
 }
 
 export interface ChildConfig {
   attendances: WeekAttendance[]
-  preschool: boolean
-  earlyDropoff: boolean
-  latePickupMorning: boolean
-  latePickupEvening: boolean
   /** Se true, nel totale entra la quota iscrizione per questo figlio. */
   includeRegistration: boolean
 }
@@ -60,6 +60,10 @@ function normalizeAttendance(a: WeekAttendance): WeekAttendance {
     weekId: a.weekId,
     slot: a.slot,
     canteen: Boolean(a.canteen),
+    preschool: Boolean(a.preschool),
+    earlyDropoff: Boolean(a.earlyDropoff),
+    latePickupMorning: Boolean(a.latePickupMorning),
+    latePickupEvening: Boolean(a.latePickupEvening),
   }
 }
 
@@ -151,7 +155,15 @@ function remapAttendancesForEnrollmentDeadline(
   }
 
   if (out.length === 0 && pool[0]) {
-    out.push({ weekId: pool[0].id, slot: 'full', canteen: false })
+    out.push({
+      weekId: pool[0].id,
+      slot: 'full',
+      canteen: false,
+      preschool: false,
+      earlyDropoff: false,
+      latePickupMorning: false,
+      latePickupEvening: false,
+    })
   }
   return out
 }
@@ -168,7 +180,19 @@ export function normalizeChild(c: ChildConfig, now?: Date): ChildConfig {
 
   if (attendances.length === 0) {
     const fb = fallbackWeek()
-    if (fb) attendances = [{ weekId: fb.id, slot: 'full', canteen: false }]
+    if (fb) {
+      attendances = [
+        {
+          weekId: fb.id,
+          slot: 'full',
+          canteen: false,
+          preschool: false,
+          earlyDropoff: false,
+          latePickupMorning: false,
+          latePickupEvening: false,
+        },
+      ]
+    }
   }
 
   if (now != null) {
@@ -177,7 +201,19 @@ export function normalizeChild(c: ChildConfig, now?: Date): ChildConfig {
 
   if (attendances.length === 0) {
     const fb = fallbackWeek()
-    if (fb) attendances = [{ weekId: fb.id, slot: 'full', canteen: false }]
+    if (fb) {
+      attendances = [
+        {
+          weekId: fb.id,
+          slot: 'full',
+          canteen: false,
+          preschool: false,
+          earlyDropoff: false,
+          latePickupMorning: false,
+          latePickupEvening: false,
+        },
+      ]
+    }
   }
 
   return {
@@ -190,11 +226,19 @@ export function normalizeChild(c: ChildConfig, now?: Date): ChildConfig {
 export function defaultChildConfig(now?: Date): ChildConfig {
   const first = now ? enrollableCampWeeks(now)[0] : CAMP_WEEKS[0]
   return {
-    attendances: first ? [{ weekId: first.id, slot: 'full', canteen: false }] : [],
-    preschool: false,
-    earlyDropoff: false,
-    latePickupMorning: false,
-    latePickupEvening: false,
+    attendances: first
+      ? [
+          {
+            weekId: first.id,
+            slot: 'full',
+            canteen: false,
+            preschool: false,
+            earlyDropoff: false,
+            latePickupMorning: false,
+            latePickupEvening: false,
+          },
+        ]
+      : [],
     includeRegistration: false,
   }
 }
@@ -354,23 +398,22 @@ export function computeQuote(
       0,
     )
 
-    let lateMorning = 0
-    let lateEvening = 0
-    if (c.latePickupMorning) {
-      lateMorning = c.attendances.reduce(
-        (s, a) => s + posticipoMorningForRow(a.slot, true),
-        0,
-      )
-    }
-    if (c.latePickupEvening) {
-      lateEvening = c.attendances.reduce(
-        (s, a) => s + posticipoEveningForRow(a.slot, true),
-        0,
-      )
-    }
-
-    const preschoolExtra = c.preschool ? W * PRICING.preschoolExtra : 0
-    const earlyDropoff = c.earlyDropoff ? W * PRICING.earlyDropoff : 0
+    const preschoolExtra = c.attendances.reduce(
+      (s, a) => s + (a.preschool ? PRICING.preschoolExtra : 0),
+      0,
+    )
+    const earlyDropoff = c.attendances.reduce(
+      (s, a) => s + (a.earlyDropoff ? PRICING.earlyDropoff : 0),
+      0,
+    )
+    const lateMorning = c.attendances.reduce(
+      (s, a) => s + posticipoMorningForRow(a.slot, Boolean(a.latePickupMorning)),
+      0,
+    )
+    const lateEvening = c.attendances.reduce(
+      (s, a) => s + posticipoEveningForRow(a.slot, Boolean(a.latePickupEvening)),
+      0,
+    )
 
     const extrasTotal = preschoolExtra + earlyDropoff + lateMorning + lateEvening
     const discPerWeek = siblingDiscountPerWeek(index)

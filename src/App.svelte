@@ -56,13 +56,27 @@
   }
 
   function sameAtt(
-    a: { weekId: string; slot: TimeSlot; canteen: boolean }[],
+    a: {
+      weekId: string
+      slot: TimeSlot
+      canteen: boolean
+      preschool?: boolean
+      earlyDropoff?: boolean
+      latePickupMorning?: boolean
+      latePickupEvening?: boolean
+    }[],
     b: typeof a,
   ): boolean {
     if (a.length !== b.length) return false
     return a.every(
       (x, i) =>
-        x.weekId === b[i]?.weekId && x.slot === b[i]?.slot && x.canteen === b[i]?.canteen,
+        x.weekId === b[i]?.weekId &&
+        x.slot === b[i]?.slot &&
+        x.canteen === b[i]?.canteen &&
+        Boolean(x.preschool) === Boolean(b[i]?.preschool) &&
+        Boolean(x.earlyDropoff) === Boolean(b[i]?.earlyDropoff) &&
+        Boolean(x.latePickupMorning) === Boolean(b[i]?.latePickupMorning) &&
+        Boolean(x.latePickupEvening) === Boolean(b[i]?.latePickupEvening),
     )
   }
 
@@ -121,7 +135,15 @@
     if (!next) return
     child.attendances = [
       ...child.attendances,
-      { weekId: next.id, slot: 'full' as TimeSlot, canteen: false },
+      {
+        weekId: next.id,
+        slot: 'full' as TimeSlot,
+        canteen: false,
+        preschool: false,
+        earlyDropoff: false,
+        latePickupMorning: false,
+        latePickupEvening: false,
+      },
     ]
   }
 
@@ -173,6 +195,10 @@
         Lo sconto fratelli (solo se due o più figli frequentano la stessa settimana) e l’eventuale iscrizione
         tardiva sono calcolati automaticamente dal sistema.
       </p>
+      <p class="lede">
+        Ricordarsi che l'iscrizione di {formatEur(PRICING.registrationPerChild)} si paga solo una volta,
+        all'inizio del Camp.
+      </p>
       <p class="disclaimer">
         L’assenza non comunicata comporta una penale sulla successiva iscrizione. Tale penale verrà gestita
         direttamente dalla segreteria del Camp.
@@ -223,8 +249,8 @@
           bind:value={testDateTimeLocal}
         />
         <span class="hint"
-          >Lasciare vuoto per usare l’orario reale. Utile per provare la finestra ven 00:00 – lun 07:30 della
-          settimana camp successiva al calendario.</span
+          >Lasciare vuoto per usare l’orario reale. Utile per provare la finestra ven 00:01 – lun 07:30
+          rispetto a ogni settimana selezionata.</span
         >
       </div>
     </section>
@@ -271,9 +297,8 @@
             </button>
           </div>
           <p class="hint attendance-hint">
-            Per ogni riga: settimana del camp e fascia. I prezzi 40 / 25 / 65 € (+30 mensa) sono <strong
-              >per settimana</strong
-            >.
+            Per ogni riga: settimana, fascia e opzioni extra dedicate a quella settimana. I prezzi 40 / 25 / 65
+            € (+30 mensa) sono <strong>per settimana</strong>.
           </p>
 
           {#each child.attendances as att, j (`${child.id}-${j}`)}
@@ -297,10 +322,6 @@
                   {/each}
                 </select>
               </div>
-              <label class="check mensa-check">
-                <input type="checkbox" bind:checked={att.canteen} />
-                <span>Mensa (+{formatEur(PRICING.canteen)})</span>
-              </label>
               {#if child.attendances.length > 1}
                 <button
                   type="button"
@@ -308,29 +329,33 @@
                   onclick={() => removeAttendance(child, j)}>Rimuovi</button
                 >
               {/if}
+              <label class="check opt-week-check">
+                <input type="checkbox" bind:checked={att.canteen} />
+                <span>Mensa (+{formatEur(PRICING.canteen)})</span>
+              </label>
+              <label class="check opt-week-check">
+                <input type="checkbox" bind:checked={att.preschool} />
+                <span>Scuola infanzia (+{formatEur(PRICING.preschoolExtra)})</span>
+              </label>
+              <label class="check opt-week-check">
+                <input type="checkbox" bind:checked={att.earlyDropoff} />
+                <span>Anticipo 7:30–8:00 (+{formatEur(PRICING.earlyDropoff)})</span>
+              </label>
+              <label class="check opt-week-check">
+                <input type="checkbox" bind:checked={att.latePickupMorning} />
+                <span
+                  >Posticipo 13:00–13:30 (+{formatEur(PRICING.latePickup)} se mattina/full)</span
+                >
+              </label>
+              <label class="check opt-week-check">
+                <input type="checkbox" bind:checked={att.latePickupEvening} />
+                <span
+                  >Posticipo 17:00–17:45 (+{formatEur(PRICING.latePickup)} se pomeriggio/full)</span
+                >
+              </label>
             </div>
           {/each}
         </div>
-
-        <fieldset class="toggles">
-          <legend>Opzioni (per ogni settimana di questo figlio)</legend>
-          <label class="check">
-            <input type="checkbox" bind:checked={child.preschool} />
-            <span>Scuola dell’infanzia (+{formatEur(PRICING.preschoolExtra)}/sett. × n. settimane)</span>
-          </label>
-          <label class="check">
-            <input type="checkbox" bind:checked={child.earlyDropoff} />
-            <span>Anticipo 7:30–8:00 (+{formatEur(PRICING.earlyDropoff)}/sett. × n. settimane)</span>
-          </label>
-          <label class="check">
-            <input type="checkbox" bind:checked={child.latePickupMorning} />
-            <span>Posticipo 13:00–13:30 (+{formatEur(PRICING.latePickup)}/sett. per settimana in mattina o giornata intera)</span>
-          </label>
-          <label class="check">
-            <input type="checkbox" bind:checked={child.latePickupEvening} />
-            <span>Posticipo 17:00–17:45 (+{formatEur(PRICING.latePickup)}/sett. per settimana in pomeriggio o giornata intera)</span>
-          </label>
-        </fieldset>
 
         <p class="child-subtotal">
           Totale ricorrente questo figlio:
@@ -372,15 +397,6 @@
         <dd>{formatEur(quote.recurringTotal)}</dd>
       </div>
     </dl>
-    <p class="totals-explain">
-      Finestra tardiva attiva ora: <strong>{quote.lateRegistration.inWindow ? 'sì' : 'no'}</strong>
-      (per ogni settimana camp: dal <strong>venerdì 00:01</strong> al <strong>lunedì 07:29</strong> del
-      suo lunedì di inizio; la maggiorazione vale sulle righe in cui quella settimana è in finestra).
-      Almeno una riga in finestra: <strong
-        >{quote.lateRegistration.hasNextWeekEnrollment ? 'sì' : 'no'}</strong
-      >. Settimane di frequenza totali (somma righe): <strong>{quote.totalChildWeeks}</strong>.
-      Le settimane camp non sono più selezionabili dopo il lunedì 07:30 del loro inizio.
-    </p>
     <dl class="totals totals-tail">
       <div class="grand">
         <dt>Totale stimato</dt>
