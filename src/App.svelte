@@ -16,7 +16,7 @@
 
   const MAX_CHILDREN = 6
   /** `false` nasconde il selettore data/ora di test per l’iscrizione tardiva. */
-  const SHOW_TEST_NOW = true
+  const SHOW_TEST_NOW = false
 
   /** Base URL Vite (slash finale) per asset in `public/` su GitHub Pages. */
   const pub = import.meta.env.BASE_URL
